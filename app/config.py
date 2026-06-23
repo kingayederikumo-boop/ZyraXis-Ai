@@ -10,7 +10,7 @@ class Config:
         return value
 
     # Core services
-    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+    TELEGRAM_BOT_TOKEN = os.getenv("8203477255:AAHgniik-6DWIcdsBoa0D1xh5yC41MLksMo")
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
     # Storage
