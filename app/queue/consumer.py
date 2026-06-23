@@ -3,6 +3,7 @@ import time
 from typing import Callable, Any, Dict
 
 from app.core.retry_policy import RetryPolicy
+from app.core.job_schema import JobValidator
 
 try:
     import redis
@@ -19,6 +20,7 @@ class QueueConsumer:
         self.channel = channel
         self.retry_policy = RetryPolicy()
         self.dlq_channel = "zyraxis_dlq"
+        self.validator = JobValidator()
 
     def listen(self, handler: Callable[[Dict[str, Any]], None]):
         while True:
@@ -28,6 +30,17 @@ class QueueConsumer:
                     continue
 
                 job = json.loads(data)
+
+                if not self.validator.validate(job):
+                    self.client.lpush(self.dlq_channel, json.dumps({
+                        "job": job,
+                        "error": "validation_failed",
+                        "timestamp": time.time()
+                    }))
+                    continue
+
+                job = self.validator.normalize(job).__dict__
+
                 self._process(job, handler)
 
             except Exception:
