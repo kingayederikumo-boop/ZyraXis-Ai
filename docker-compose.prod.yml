@@ -10,8 +10,28 @@ services:
       - RUN_MODE=webhook
       - WEBHOOK_URL=${WEBHOOK_URL}
       - PORT=8000
+      - REDIS_URL=redis://redis:6379
     expose:
       - "8000"
+    depends_on:
+      - redis
+
+  worker:
+    build: .
+    container_name: zyraxis-worker
+    restart: always
+    command: python -m app.workers.entrypoint
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: zyraxis-redis
+    restart: always
+    ports:
+      - "6379:6379"
 
   nginx:
     image: nginx:latest
