@@ -2,25 +2,25 @@ from app.providers.openrouter_client import OpenRouterClient
 from app.gateway.guard import Gatekeeper
 from app.gateway.auth import AuthService
 from app.database.session import SessionLocal
+from app.ops.logger import OpsLogger
 
 client = OpenRouterClient()
 gate = Gatekeeper()
 auth = AuthService()
+logger = OpsLogger()
 
 class Orchestrator:
-    """V1.2 hardened execution core (atomic enforcement fix)."""
+    """V1.3 ops-integrated execution core."""
 
     def handle_message(self, telegram_id: str, text: str):
         db = SessionLocal()
 
-        try:
-            # Resolve user (DB is single source of truth)
-            user = auth.get_or_create_user(telegram_id)
+        logger.event("request_received", telegram_id, {"text_length": len(text)})
 
-            # Enforce premium state strictly from DB
+        try:
+            user = auth.get_or_create_user(telegram_id)
             is_premium = bool(user.is_premium)
 
-            # Fetch real usage from DB (NO SPOOF)
             usage_row = db.execute(
                 "SELECT ai_requests FROM usage WHERE telegram_id = :tid",
                 {"tid": telegram_id}
@@ -28,17 +28,16 @@ class Orchestrator:
 
             usage_count = usage_row[0] if usage_row else 0
 
-            # Gate enforcement (correct usage-based limit)
             if not gate.can_use_ai(usage_count, is_premium=is_premium):
+                logger.event("quota_denied", telegram_id, {"usage": usage_count, "premium": is_premium})
                 return "Daily limit reached. Upgrade to premium."
 
-            # Execute AI call with safety wrapper
             try:
                 response = client.chat(text)
-            except Exception:
+            except Exception as e:
+                logger.error("ai_error", telegram_id, str(e))
                 return "AI service temporarily unavailable. Try again later."
 
-            # Atomic usage update (DB truth)
             if usage_row:
                 db.execute(
                     "UPDATE usage SET ai_requests = ai_requests + 1 WHERE telegram_id = :tid",
@@ -51,6 +50,8 @@ class Orchestrator:
                 )
 
             db.commit()
+
+            logger.event("ai_success", telegram_id, {"usage_after": usage_count + 1})
 
             return response
 
