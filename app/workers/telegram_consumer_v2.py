@@ -6,6 +6,7 @@ import redis
 
 from app.orchestrator.router import Orchestrator
 from app.queue.dlq import push_dlq, push_retry
+from app.monitoring.heartbeat import start_heartbeat
 
 QUEUE_NAME = "telegram_updates"
 
@@ -84,6 +85,9 @@ def process_event(event: dict):
 
 def run():
     print("Telegram consumer v2 started...")
+
+    # Start heartbeat monitoring
+    start_heartbeat()
 
     while True:
         try:
