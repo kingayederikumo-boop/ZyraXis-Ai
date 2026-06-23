@@ -8,7 +8,7 @@ gate = Gatekeeper()
 auth = AuthService()
 
 class Orchestrator:
-    """V1.2 hardened execution core (single source of truth)."""
+    """V1.2 hardened execution core (atomic enforcement fix)."""
 
     def handle_message(self, telegram_id: str, text: str):
         db = SessionLocal()
@@ -17,11 +17,19 @@ class Orchestrator:
             # Resolve user (DB is single source of truth)
             user = auth.get_or_create_user(telegram_id)
 
-            # Enforce premium state from DB only
+            # Enforce premium state strictly from DB
             is_premium = bool(user.is_premium)
 
-            # Gate enforcement (AI usage only)
-            if not gate.can_use_ai(user_usage := 0, is_premium=is_premium):
+            # Fetch real usage from DB (NO SPOOF)
+            usage_row = db.execute(
+                "SELECT ai_requests FROM usage WHERE telegram_id = :tid",
+                {"tid": telegram_id}
+            ).fetchone()
+
+            usage_count = usage_row[0] if usage_row else 0
+
+            # Gate enforcement (correct usage-based limit)
+            if not gate.can_use_ai(usage_count, is_premium=is_premium):
                 return "Daily limit reached. Upgrade to premium."
 
             # Execute AI call with safety wrapper
@@ -31,12 +39,7 @@ class Orchestrator:
                 return "AI service temporarily unavailable. Try again later."
 
             # Atomic usage update (DB truth)
-            usage = db.execute(
-                "SELECT ai_requests FROM usage WHERE telegram_id = :tid",
-                {"tid": telegram_id}
-            ).fetchone()
-
-            if usage:
+            if usage_row:
                 db.execute(
                     "UPDATE usage SET ai_requests = ai_requests + 1 WHERE telegram_id = :tid",
                     {"tid": telegram_id}
