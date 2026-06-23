@@ -1,6 +1,7 @@
 import json
 import time
-from typing import Dict, Any
+import os
+from typing import Dict, Any, Optional
 
 from app.queue.producer import QueueProducer
 from app.core.job_schema import JobValidator
@@ -13,14 +14,29 @@ class TelegramWebhook:
     def __init__(self, redis_url: str):
         self.producer = QueueProducer(redis_url)
         self.validator = JobValidator()
+        self.secret_token = os.getenv("TELEGRAM_SECRET_TOKEN")
 
-    def handle_update(self, update: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_update(
+        self,
+        update: Dict[str, Any],
+        headers: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
         """
         Entry point for Telegram webhook payloads.
         Converts Telegram update -> internal job schema -> queue.
         """
 
         try:
+            # Security check (Telegram secret token verification)
+            if self.secret_token:
+                incoming_token = None
+                if headers:
+                    incoming_token = headers.get("X-Telegram-Bot-Api-Secret-Token")
+
+                if incoming_token != self.secret_token:
+                    logger.warning("unauthorized_webhook_attempt")
+                    return {"status": "unauthorized"}
+
             job = self._convert_to_job(update)
 
             if not self.validator.validate(job):
