@@ -19,9 +19,11 @@ from app.bot.commands import (
     stats_command,
     upgrade_command,
 )
+from app.services.response_router import ResponseRouter
 
 orchestrator = Orchestrator()
 billing = TelegramStarsBilling(bot_token=Config.TELEGRAM_BOT_TOKEN)
+router = ResponseRouter()
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -36,8 +38,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == '❓ Help':
         return await help_command(update, context)
 
-    response = orchestrator.handle(user_id, text)
-    await update.message.reply_text(response)
+    result = orchestrator.handle(user_id, text)
+
+    # ResponseRouter integration
+    if isinstance(result, dict):
+        status = result.get("status")
+
+        if status == "blocked":
+            msg = f"Limit reached. Upgrade tier required."
+            await update.message.reply_text(msg)
+            return
+
+        if status == "error":
+            await update.message.reply_text("System error occurred.")
+            return
+
+        if status == "success":
+            data = result.get("data")
+            await update.message.reply_text(str(data))
+            return
+
+    await update.message.reply_text(str(result))
 
 async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await billing.pre_checkout_handler(update, context)
