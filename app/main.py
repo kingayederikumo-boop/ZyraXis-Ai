@@ -1,18 +1,17 @@
 from fastapi import FastAPI, Request
-from telegram import Update
+import os
+import json
+import time
+
+import redis
 
 from app.config import Config
-from app.bot.telegram_bot import build_app
-from app.bot.webhook_setup import register_webhook
 
 app = FastAPI()
-telegram_app = build_app()
 
-# Optional webhook registration (safe for serverless cold starts)
-try:
-    register_webhook()
-except Exception:
-    pass
+# Redis queue setup (ingestion layer)
+_redis = redis.from_url(os.getenv("REDIS_URL"), decode_responses=True)
+QUEUE_NAME = "telegram_updates"
 
 
 @app.get("/health")
@@ -23,18 +22,23 @@ async def health():
 @app.post("/webhook")
 async def webhook(req: Request):
     """
-    Telegram webhook entrypoint
+    Ingestion-only webhook.
+    Pushes Telegram updates into Redis queue.
     """
     data = await req.json()
 
-    update = Update.de_json(data, telegram_app.bot)
-    await telegram_app.process_update(update)
+    event = {
+        "id": data.get("update_id") or str(time.time()),
+        "timestamp": time.time(),
+        "payload": data,
+    }
+
+    _redis.lpush(QUEUE_NAME, json.dumps(event))
 
     return {"ok": True}
 
 
 def bootstrap():
-    # Fail-fast validation of environment before any service starts
     Config.validate()
 
 
