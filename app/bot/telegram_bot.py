@@ -40,13 +40,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     result = orchestrator.handle(user_id, text)
 
-    # ResponseRouter integration
     if isinstance(result, dict):
         status = result.get("status")
 
         if status == "blocked":
-            msg = f"Limit reached. Upgrade tier required."
-            await update.message.reply_text(msg)
+            await update.message.reply_text("Limit reached. Upgrade required.")
             return
 
         if status == "error":
@@ -54,8 +52,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if status == "success":
-            data = result.get("data")
-            await update.message.reply_text(str(data))
+            await update.message.reply_text(str(result.get("data")))
             return
 
     await update.message.reply_text(str(result))
@@ -70,9 +67,12 @@ async def premium_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await billing.create_stars_invoice(update, context)
 
 
-def start():
-    app = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).build()
+# WEBHOOK MODE HANDLER
+async def webhook_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await handle_message(update, context)
 
+
+def start_webhook(app):
     app.add_handler(CommandHandler('start', start_command))
     app.add_handler(CommandHandler('help', help_command))
     app.add_handler(CommandHandler('profile', profile_command))
@@ -80,9 +80,13 @@ def start():
     app.add_handler(CommandHandler('stats', stats_command))
     app.add_handler(CommandHandler('upgrade', upgrade_command))
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, webhook_handler))
     app.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.COMMAND & filters.Regex('^/premium$'), premium_command))
 
-    app.run_polling()
+
+def build_app():
+    application = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).build()
+    start_webhook(application)
+    return application
