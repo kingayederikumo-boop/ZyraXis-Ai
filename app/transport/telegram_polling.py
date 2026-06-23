@@ -9,7 +9,7 @@ from telegram.ext import (
 )
 
 from app.config import Config
-from app.core.runtime import handle_user
+from app.core.queue import Queue
 from app.bot.commands import (
     start_command,
     help_command,
@@ -21,13 +21,14 @@ from app.bot.commands import (
 from app.bot.payments import TelegramStarsBilling
 
 billing = TelegramStarsBilling(bot_token=Config.TELEGRAM_BOT_TOKEN)
+queue = Queue()
+CHANNEL = "zyraxis_jobs"
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     text = update.message.text
 
-    # UI commands routing
     ui_map = {
         "👤 Profile": profile_command,
         "📊 Usage": stats_command,
@@ -38,9 +39,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text in ui_map:
         return await ui_map[text](update, context)
 
-    # Core AI routing
-    response = handle_user(user_id, text)
-    await update.message.reply_text(response)
+    queue.push(CHANNEL, {
+        "user_id": user_id,
+        "text": text
+    })
+
+    await update.message.reply_text("Request queued.")
 
 
 async def pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
