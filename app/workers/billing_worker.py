@@ -11,7 +11,18 @@ class BillingWorker(BaseWorker):
 
     def run_job(self, job: Dict[str, Any], handler):
         job_id = job.get("job_id")
+        cid = job.get("correlation_id")
+
         if job_id and not self.idempotency.ensure_once(f"billing:{job_id}"):
             return
 
-        return handler(job)
+        self.logger.info("billing_job_start", job_id=job_id, correlation_id=cid)
+
+        try:
+            result = handler(job)
+            self.logger.info("billing_job_success", job_id=job_id, correlation_id=cid)
+            return result
+
+        except Exception as e:
+            self.logger.error("billing_job_failed", job_id=job_id, error=str(e), correlation_id=cid)
+            raise
