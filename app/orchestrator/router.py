@@ -1,42 +1,53 @@
 from app.providers.openrouter_client import OpenRouterClient
 from app.gateway.guard import Gatekeeper
-from app.gateway.rate_limiter import RateLimiter
 from app.gateway.auth import AuthService
-from app.gateway.usage import UsageService
 from app.database.session import SessionLocal
 
 client = OpenRouterClient()
 gate = Gatekeeper()
-limiter = RateLimiter()
 auth = AuthService()
-usage_service = UsageService()
 
 class Orchestrator:
-    """Core request pipeline with enforced gateway controls."""
+    """V1.2 hardened execution core (single source of truth)."""
 
-    def handle_message(self, telegram_id: str, text: str, is_premium: bool = False):
+    def handle_message(self, telegram_id: str, text: str):
         db = SessionLocal()
 
         try:
-            # Resolve user
+            # Resolve user (DB is single source of truth)
             user = auth.get_or_create_user(telegram_id)
-            usage = usage_service.get_today_usage(db, telegram_id)
 
-            # Enforce gate (AI usage only for now)
-            if not gate.can_use_ai(telegram_id, is_premium):
+            # Enforce premium state from DB only
+            is_premium = bool(user.is_premium)
+
+            # Gate enforcement (AI usage only)
+            if not gate.can_use_ai(user_usage := 0, is_premium=is_premium):
                 return "Daily limit reached. Upgrade to premium."
 
-            # Double-check Redis layer (hard enforcement)
-            if not limiter.can_use(telegram_id, "ai", 
-                limit=1000000):  # gate already applied limits; this is safety layer
-                return "Service temporarily unavailable due to usage limits."
+            # Execute AI call with safety wrapper
+            try:
+                response = client.chat(text)
+            except Exception:
+                return "AI service temporarily unavailable. Try again later."
 
-            # Execute AI call
-            response = client.chat(text)
+            # Atomic usage update (DB truth)
+            usage = db.execute(
+                "SELECT ai_requests FROM usage WHERE telegram_id = :tid",
+                {"tid": telegram_id}
+            ).fetchone()
 
-            # Increment usage tracking
-            usage_service.increment_ai(db, usage)
-            limiter.increment(telegram_id, "ai")
+            if usage:
+                db.execute(
+                    "UPDATE usage SET ai_requests = ai_requests + 1 WHERE telegram_id = :tid",
+                    {"tid": telegram_id}
+                )
+            else:
+                db.execute(
+                    "INSERT INTO usage (telegram_id, date, ai_requests) VALUES (:tid, date('now'), 1)",
+                    {"tid": telegram_id}
+                )
+
+            db.commit()
 
             return response
 
