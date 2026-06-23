@@ -1,29 +1,25 @@
-from app.gateway.rate_limiter import RateLimiter
 from app.config import Config
 
-limiter = RateLimiter()
-
 class Gatekeeper:
-    """Central enforcement layer for ZyraXis requests."""
+    """Central enforcement layer for ZyraXis requests (DB-source aligned)."""
 
-    def can_use_ai(self, user_id: str, is_premium: bool) -> bool:
+    def can_use_ai(self, usage_count: int, is_premium: bool) -> bool:
         limit = Config.PREMIUM_AI_LIMIT if is_premium else Config.FREE_AI_LIMIT
-        return limiter.can_use(user_id, "ai", limit)
+        return usage_count < limit
 
-    def can_use_roleplay(self, user_id: str, is_premium: bool) -> bool:
+    def can_use_roleplay(self, usage_count: int, is_premium: bool) -> bool:
         limit = Config.PREMIUM_ROLEPLAY_LIMIT if is_premium else Config.FREE_ROLEPLAY_LIMIT
-        return limiter.can_use(user_id, "roleplay", limit)
+        return usage_count < limit
 
-    def can_use_image(self, user_id: str, is_premium: bool) -> bool:
+    def can_use_image(self, usage_count: int, is_premium: bool) -> bool:
         limit = Config.PREMIUM_IMAGE_LIMIT if is_premium else Config.FREE_IMAGE_LIMIT
-        return limiter.can_use(user_id, "image", limit)
+        return usage_count < limit
 
-    def can_use_file(self, user_id: str, is_premium: bool) -> bool:
+    def can_use_file(self, usage_count: int, is_premium: bool) -> bool:
         limit = Config.PREMIUM_FILE_LIMIT if is_premium else Config.FREE_FILE_LIMIT
-        return limiter.can_use(user_id, "file", limit)
+        return usage_count < limit
 
     def resolve_tier(self, user: dict | None) -> bool:
-        """Basic tier resolver (placeholder for subscription system)."""
         if not user:
             return False
-        return user.get("is_premium", False)
+        return bool(user.get("is_premium", False))
