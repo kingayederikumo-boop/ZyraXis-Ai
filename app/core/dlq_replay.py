@@ -1,11 +1,17 @@
 import json
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
+
+from app.core.job_schema import JobValidator
+from app.core.idempotency import IdempotencyStore
+from app.core.logger import get_logger
 
 try:
     import redis
 except ImportError:
     redis = None
+
+logger = get_logger("dlq_replay")
 
 
 class DLQReplay:
@@ -16,6 +22,9 @@ class DLQReplay:
         self.client = redis.from_url(redis_url, decode_responses=True)
         self.dlq_channel = "zyraxis_dlq"
         self.queue_channel = "zyraxis_queue"
+
+        self.validator = JobValidator()
+        self.idempotency = IdempotencyStore(redis_url)
 
     def fetch_batch(self, limit: int = 10):
         items = []
@@ -45,12 +54,31 @@ class DLQReplay:
                     failed += 1
                     continue
 
+                logger.info("replay_attempt", job_id=job.get("job_id"))
+
+                # validate before replay
+                if not self.validator.validate(job):
+                    logger.warning("replay_validation_failed", job_id=job.get("job_id"))
+                    failed += 1
+                    continue
+
+                job = self.validator.normalize(job).__dict__
+
+                # idempotency check
+                key = f"replay:{job.get('job_id')}"
+                if job.get("job_id") and not self.idempotency.ensure_once(key):
+                    logger.warning("replay_duplicate_skipped", job_id=job.get("job_id"))
+                    continue
+
                 job["replayed_at"] = time.time()
 
                 self.client.lpush(self.queue_channel, json.dumps(job))
+
+                logger.info("replay_success", job_id=job.get("job_id"))
                 success += 1
 
-            except Exception:
+            except Exception as e:
+                logger.error("replay_error", error=str(e))
                 failed += 1
 
         return {
