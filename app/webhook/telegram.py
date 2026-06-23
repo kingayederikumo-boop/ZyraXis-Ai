@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional
 from app.queue.producer import QueueProducer
 from app.core.job_schema import JobValidator
 from app.core.logger import get_logger
+from app.core.correlation import ensure as ensure_correlation
 
 logger = get_logger("telegram_webhook")
 
@@ -39,6 +40,9 @@ class TelegramWebhook:
 
             job = self._convert_to_job(update)
 
+            # ensure correlation id propagation
+            job = ensure_correlation(job, headers)
+
             if not self.validator.validate(job):
                 logger.warning("invalid_update", update=update)
                 return {"status": "rejected"}
@@ -47,9 +51,13 @@ class TelegramWebhook:
 
             self.producer.push(job)
 
-            logger.info("job_enqueued", job_id=job.get("job_id"))
+            logger.info("job_enqueued", job_id=job.get("job_id"), correlation_id=job.get("correlation_id"))
 
-            return {"status": "accepted", "job_id": job.get("job_id")}
+            return {
+                "status": "accepted",
+                "job_id": job.get("job_id"),
+                "correlation_id": job.get("correlation_id")
+            }
 
         except Exception as e:
             logger.error("webhook_error", error=str(e))
