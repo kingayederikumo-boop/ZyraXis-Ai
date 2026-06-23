@@ -34,35 +34,38 @@ class QueueConsumer:
 
                 job = json.loads(data)
 
-                logger.info("job_received", job=job)
+                cid = job.get("correlation_id")
+
+                logger.info("job_received", job=job, correlation_id=cid)
 
                 if not self.validator.validate(job):
-                    logger.warning("validation_failed", job=job)
+                    logger.warning("validation_failed", job=job, correlation_id=cid)
                     self.client.lpush(self.dlq_channel, json.dumps({
                         "job": job,
                         "error": "validation_failed",
+                        "correlation_id": cid,
                         "timestamp": time.time()
                     }))
                     continue
 
                 job = self.validator.normalize(job).__dict__
 
-                self._process(job, handler)
+                self._process(job, handler, cid)
 
             except Exception as e:
                 logger.error("consumer_error", error=str(e))
                 time.sleep(1)
 
-    def _process(self, job: Dict[str, Any], handler: Callable):
+    def _process(self, job: Dict[str, Any], handler: Callable, cid: str = None):
         retries = job.get("retries", 0)
 
         try:
-            logger.info("job_start", job_id=job.get("job_id"))
+            logger.info("job_start", job_id=job.get("job_id"), correlation_id=cid)
             handler(job)
-            logger.info("job_success", job_id=job.get("job_id"))
+            logger.info("job_success", job_id=job.get("job_id"), correlation_id=cid)
 
         except Exception as e:
-            logger.error("job_failed", job_id=job.get("job_id"), error=str(e))
+            logger.error("job_failed", job_id=job.get("job_id"), error=str(e), correlation_id=cid)
 
             failure_type = self.retry_policy.classify_error(e)
 
@@ -70,13 +73,14 @@ class QueueConsumer:
                 job["retries"] = retries + 1
                 time.sleep(self.retry_policy.get_delay(retries))
                 self.client.lpush(self.channel, json.dumps(job))
-                logger.warning("job_retry", job_id=job.get("job_id"), retry=retries+1)
+                logger.warning("job_retry", job_id=job.get("job_id"), retry=retries+1, correlation_id=cid)
             else:
                 payload = {
                     "job": job,
                     "error": str(e),
                     "retry_count": retries,
+                    "correlation_id": cid,
                     "timestamp": time.time()
                 }
                 self.client.lpush(self.dlq_channel, json.dumps(payload))
-                logger.error("job_dlq", job_id=job.get("job_id"))
+                logger.error("job_dlq", job_id=job.get("job_id"), correlation_id=cid)
