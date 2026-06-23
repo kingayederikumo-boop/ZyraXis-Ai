@@ -11,12 +11,12 @@ logger = OpsLogger()
 engine = ExecutionEngine()
 
 class Orchestrator:
-    """V1.4 migrated orchestrator (delegates execution to engine)."""
+    """V1.4 production orchestrator (ops-integrated, unified logging)."""
 
     def handle_message(self, telegram_id: str, text: str):
         db = SessionLocal()
 
-        logger.log(telegram_id, "request_received", {"text_length": len(text)})
+        logger.event("request_received", telegram_id, {"text_length": len(text)})
 
         try:
             user = auth.get_or_create_user(telegram_id)
@@ -30,13 +30,13 @@ class Orchestrator:
             usage_count = usage_row[0] if usage_row else 0
 
             if not gate.can_use_ai(usage_count, is_premium=is_premium):
-                logger.log(telegram_id, "quota_denied", {"usage": usage_count})
+                logger.event("quota_denied", telegram_id, {"usage": usage_count})
                 return "Daily limit reached. Upgrade required."
 
             try:
                 response = engine.run("chat", text)
             except Exception as e:
-                logger.log(telegram_id, "ai_error", {"error": str(e)})
+                logger.error("ai_error", telegram_id, str(e))
                 return "AI service temporarily unavailable."
 
             if usage_row:
@@ -52,7 +52,7 @@ class Orchestrator:
 
             db.commit()
 
-            logger.log(telegram_id, "ai_success", {"usage_after": usage_count + 1})
+            logger.event("ai_success", telegram_id, {"usage_after": usage_count + 1})
 
             return response
 
