@@ -3,7 +3,7 @@ import os
 class Config:
     """Core configuration with strict env validation."""
 
-    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_FATHER_TOKEN")
     OPENROUTER_API_TOKEN = os.getenv("OPENROUTER_API_TOKEN")
 
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///zyraxis.db")
@@ -24,8 +24,11 @@ class Config:
 
     @classmethod
     def validate(cls):
-        required = ["TELEGRAM_BOT_TOKEN", "OPENROUTER_API_TOKEN"]
+        required = ["OPENROUTER_API_TOKEN"]
         missing = []
+
+        if not cls.TELEGRAM_BOT_TOKEN:
+            missing.append("TELEGRAM_BOT_TOKEN or BOT_FATHER_TOKEN")
 
         for key in required:
             if not getattr(cls, key, None):
