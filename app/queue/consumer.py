@@ -3,7 +3,6 @@ import time
 from typing import Callable, Any, Dict
 
 from app.core.retry_policy import RetryPolicy
-from app.core.dlq import push_dlq
 
 try:
     import redis
@@ -19,6 +18,7 @@ class QueueConsumer:
         self.client = redis.from_url(redis_url, decode_responses=True)
         self.channel = channel
         self.retry_policy = RetryPolicy()
+        self.dlq_channel = "zyraxis_dlq"
 
     def listen(self, handler: Callable[[Dict[str, Any]], None]):
         while True:
@@ -28,11 +28,9 @@ class QueueConsumer:
                     continue
 
                 job = json.loads(data)
-
                 self._process(job, handler)
 
-            except Exception as e:
-                # global consumer failure
+            except Exception:
                 time.sleep(1)
 
     def _process(self, job: Dict[str, Any], handler: Callable):
@@ -49,4 +47,10 @@ class QueueConsumer:
                 time.sleep(self.retry_policy.get_delay(retries))
                 self.client.lpush(self.channel, json.dumps(job))
             else:
-                push_dlq(job, str(e))
+                payload = {
+                    "job": job,
+                    "error": str(e),
+                    "retry_count": retries,
+                    "timestamp": time.time()
+                }
+                self.client.lpush(self.dlq_channel, json.dumps(payload))
