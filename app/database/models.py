@@ -12,6 +12,7 @@ class User(Base):
     is_premium = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
+
 class Usage(Base):
     __tablename__ = "usage"
 
@@ -19,3 +20,18 @@ class Usage(Base):
     telegram_id = Column(String, index=True)
     date = Column(String)
     ai_requests = Column(Integer, default=0)
+
+
+class Payment(Base):
+    """Idempotency layer for Telegram Stars payments."""
+
+    __tablename__ = "payments"
+
+    id = Column(Integer, primary_key=True)
+    telegram_id = Column(String, index=True)
+
+    payment_id = Column(String, unique=True, index=True)
+    invoice_payload = Column(String)
+
+    status = Column(String, default="pending")  # pending | processed
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
