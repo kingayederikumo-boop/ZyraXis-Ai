@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: #12052A;
+  color: #FFFFFF;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.card {
+  background: #1A0D3D;
+  border-radius: 16px;
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  backdrop-filter: blur(12px);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #A855F7, #C084FC);
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 15px -3px rgba(168, 85, 247, 0.3);
+}
