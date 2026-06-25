@@ -5,6 +5,7 @@ import axios from 'axios';
 import { ArrowRight, Image as ImageIcon, MessageSquare, FileText, Zap } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://yourdomain.com';
+const BOT_USERNAME = process.env.NEXT_PUBLIC_BOT_USERNAME || 'yourbot';
 
 export default function Home() {
   const [usage, setUsage] = useState<any>(null);
@@ -34,7 +35,7 @@ export default function Home() {
   };
 
   const quickAction = (action: string) => {
-    WebApp.openTelegramLink(`https://t.me/yourbot?start=${action}`);
+    WebApp.openTelegramLink(`https://t.me/${BOT_USERNAME}?start=${action}`);
   };
 
   return (
@@ -89,7 +90,7 @@ export default function Home() {
         {['Better Search', 'Video Generation', 'Coding Assistant'].map((f, i) => (
           <div 
             key={i} 
-            onClick={() => WebApp.openTelegramLink('https://t.me/yourbot?start=premium')} 
+            onClick={() => WebApp.openTelegramLink(`https://t.me/${BOT_USERNAME}?start=premium`)} 
             className="flex justify-between items-center py-4 border-b border-[#1A0D3D] last:border-none cursor-pointer hover:bg-[#1A0D3D] px-2 rounded-xl"
           >
             <span>{f}</span>
