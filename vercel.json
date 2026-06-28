@@ -1,5 +1,8 @@
 {
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/out",
-  "installCommand": "cd frontend && npm install"
+  "installCommand": "cd frontend && npm install",
+  "routes": [
+    {"src": "/webhook", "dest": "/app/main.py"}
+  ]
 }
