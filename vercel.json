@@ -1,0 +1,11 @@
+{
+  "functions": {
+    "app/main.py": {
+      "runtime": "@vercel/python@4.3.0"
+    }
+  },
+  "rewrites": [
+    { "source": "/webhook", "destination": "/app/main.py" },
+    { "source": "/health", "destination": "/app/main.py" }
+  ]
+}
