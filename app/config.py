@@ -22,12 +22,11 @@ class Config:
     OPENROUTER_API_KEY_CODE = os.getenv("OPENROUTER_API_KEY_CODE") or OPENROUTER_API_KEY
     OPENROUTER_API_KEY_SEARCH = os.getenv("OPENROUTER_API_KEY_SEARCH") or OPENROUTER_API_KEY
     OPENROUTER_API_KEY_IMAGE = 
+os.getenv("OPENROUTER_API_KEY_IMAGE") or OPENROUTER_API_KEY
     # No longer used by the image feature specifically - OpenRouter's
     # Images API returned 402 Payment Required without a funded balance.
     # Image generation now uses Gemini's free tier instead (see below).
     # Left here in case OpenRouter image gen is revisited later.
-    OPENROUTER_API_KEY_IMAGE = os.getenv("OPENROUTER_API_KEY_IMAGE") or OPENROUTER_API_KEY
-
     # Gemini API key for image generation (Nano Banana 2) - free tier,
     # 50 requests/day, no credit card required.
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
