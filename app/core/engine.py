@@ -1,4 +1,5 @@
 from app.providers.openrouter import OpenRouterClient
+from app.providers.gemini import GeminiClient
 from app.config import Config
 
 # One client per feature, each with its own (optionally distinct) API key.
@@ -6,7 +7,9 @@ chat_client = OpenRouterClient(api_key=Config.OPENROUTER_API_KEY_CHAT, use_fallb
 roleplay_client = OpenRouterClient(api_key=Config.OPENROUTER_API_KEY_ROLEPLAY, use_fallback=True)
 code_client = OpenRouterClient(api_key=Config.OPENROUTER_API_KEY_CODE, use_fallback=True)
 search_client = OpenRouterClient(api_key=Config.OPENROUTER_API_KEY_SEARCH)
-image_client = OpenRouterClient(api_key=Config.OPENROUTER_API_KEY_IMAGE)
+# Switched from OpenRouter's Images API (402 Payment Required without a
+# funded balance) to Gemini's free tier (Nano Banana 2).
+image_client = GeminiClient(api_key=Config.GEMINI_API_KEY)
 file_client = OpenRouterClient(api_key=Config.OPENROUTER_API_KEY_FILE)
 video_client = OpenRouterClient(api_key=Config.OPENROUTER_API_KEY_VIDEO)
 
