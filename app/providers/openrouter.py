@@ -83,10 +83,12 @@ class OpenRouterClient:
             return {}
         return {"models": Config.OPENROUTER_MODEL_CHAIN, "route": "fallback"}
 
-    def chat(self, text: str, system: str | None = None) -> str:
+    def chat(self, text: str, system: str | None = None, history: list[dict] | None = None) -> str:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
+        if history:
+            messages.extend(history)
         messages.append({"role": "user", "content": text})
 
         payload = {"model": self.model, "messages": messages, **self._routing()}
