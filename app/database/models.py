@@ -119,3 +119,18 @@ class VideoJob(Base):
     polling_url = Column(Text, nullable=False)
     status = Column(Text, default="pending")  # pending|completed|failed|cancelled|expired
     created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow)
+
+
+class ConversationMessage(Base):
+    """One row per message (user or assistant), scoped by feature so a
+    roleplay scene and a plain chat thread don't bleed into each other.
+    Read as history (last N) on each call, written after every exchange."""
+
+    __tablename__ = "conversation_messages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    telegram_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False)
+    feature = Column(Text, nullable=False)
+    role = Column(Text, nullable=False)  # user | assistant
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow)
