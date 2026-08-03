@@ -46,13 +46,16 @@ class ExecutionEngine:
 
     def run(self, feature: str, task: str, context: dict | None = None):
         if feature == "chat":
-            return chat_client.chat(task, system=CHAT_SYSTEM_PROMPT)
+            history = (context or {}).get("history")
+            return chat_client.chat(task, system=CHAT_SYSTEM_PROMPT, history=history)
 
         if feature == "roleplay":
-            return roleplay_client.chat(task, system=ROLEPLAY_SYSTEM_PROMPT)
+            history = (context or {}).get("history")
+            return roleplay_client.chat(task, system=ROLEPLAY_SYSTEM_PROMPT, history=history)
 
         if feature == "code":
-            return code_client.chat(task, system=CODE_SYSTEM_PROMPT)
+            history = (context or {}).get("history")
+            return code_client.chat(task, system=CODE_SYSTEM_PROMPT, history=history)
 
         if feature == "search":
             return search_client.search(task)
