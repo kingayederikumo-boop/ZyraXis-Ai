@@ -18,6 +18,7 @@ from app.config import Config
 from app.database.session import SessionLocal
 from app.database.models import VideoJob
 from app.core.engine import video_client
+from app.gateway.auth import AuthService
 
 QUEUE_NAME = "telegram_updates"
 VIDEO_POLL_INTERVAL_SECONDS = 30
@@ -29,6 +30,7 @@ if not REDIS_URL:
 
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 orchestrator = Orchestrator()
+auth = AuthService()
 
 _last_video_poll = 0.0
 
@@ -118,10 +120,6 @@ async def process_document(message: dict, user_id: str, chat_id: str):
         print(f"File download failed: {e}")
         return
 
-    # Orchestrator/DB/OpenRouter calls are synchronous (SQLAlchemy, requests)
-    # - fine to call directly inline here. This worker processes one message
-    # at a time anyway (no concurrency to protect), so a blocking call just
-    # means "wait before the next await," identical to before this rewrite.
     outcome = orchestrator.handle_message(
         user_id, prompt, feature="file",
         context={"file_bytes": file_bytes, "filename": filename},
@@ -149,9 +147,18 @@ async def process_event(event: dict):
         chat_id = str(chat.get("id"))
         user_id = str(from_.get("id", ""))
         first_name = from_.get("first_name")
+        username = from_.get("username")
 
         if not chat_id:
             return
+
+        # FIX: username was never being captured anywhere before this pass -
+        # nothing upstream even read it off the incoming payload. Doing this
+        # unconditionally, once per message, covers every path below
+        # (canned commands, orchestrated commands, plain chat, uploads)
+        # rather than threading a new parameter through each one.
+        if user_id:
+            auth.get_or_create_user(user_id, username=username)
 
         if "document" in message:
             await process_document(message, user_id, chat_id)
@@ -215,9 +222,12 @@ async def _send_outcome(chat_id: str, result, chat_id_for_video: str = None, tel
 
     if status == "blocked":
         tier = result.get("tier", "free")
-        if tier == "free":
-            await send_message(
-                chat_id,
+
+        # FIX: this used to always say "Continue with Pro" regardless of
+        # which tier was actually blocked - a Plus user hitting their limit
+        # would've been told to upgrade to a tier they already have.
+        next_tier_copy = {
+            "free": (
                 "You've reached today's free AI limit.\n\n"
                 "Continue with Pro and unlock:\n"
                 "• More AI conversations\n"
@@ -226,9 +236,28 @@ async def _send_outcome(chat_id: str, result, chat_id_for_video: str = None, tel
                 "• Video generation\n"
                 "• Faster responses\n\n"
                 "Use /premium to upgrade — 200 ⭐"
-            )
-        else:
-            await send_message(chat_id, "Today's limit reached for this tier. It resets daily.")
+            ),
+            "pro": (
+                "You've reached today's Pro limit.\n\n"
+                "Continue with Plus and unlock:\n"
+                "• Advanced reasoning & web search\n"
+                "• Basic Coding Assistant\n"
+                "• Basic Research Mode\n"
+                "• Higher limits across the board\n\n"
+                "Use /premium to upgrade — 500 ⭐"
+            ),
+            "plus": (
+                "You've reached today's Plus limit.\n\n"
+                "Continue with Expert and unlock:\n"
+                "• Full Coding Assistant\n"
+                "• Advanced Research Mode\n"
+                "• Unlimited roleplay (fair use)\n"
+                "• Highest priority processing\n\n"
+                "Use /premium to upgrade — 1100 ⭐"
+            ),
+        }
+
+        await send_message(chat_id, next_tier_copy.get(tier, "Today's limit reached for this tier. It resets daily."))
         return
 
     if status == "error":
@@ -247,9 +276,6 @@ async def _send_outcome(chat_id: str, result, chat_id_for_video: str = None, tel
             return
 
         if feature == "video":
-            # data here is the job dict from submit_video(), not a finished
-            # video - it takes 30s-minutes. Record it and tell the user;
-            # the polling loop in run() delivers it later.
             job = result.get("data") or {}
             job_id = job.get("id")
             polling_url = job.get("polling_url")
@@ -343,16 +369,10 @@ def _set_video_job_status(job_row_id: int, status: str):
 
 
 async def run():
-    """FIX: this whole function is now async and runs inside exactly ONE
-    asyncio.run() call for the entire process lifetime (see start_consumer.py
-    / __main__ below). Previously every individual Telegram API call opened
-    and closed its own event loop - the Bot's shared httpx connection pool
-    doesn't tolerate that and eventually exhausted itself
-    ("Pool timeout: All connections in the connection pool are occupied").
-    redis_client.brpop() is a blocking synchronous call - that's fine here,
-    since this worker processes exactly one message at a time anyway; it
-    just pauses this coroutine, it doesn't need to run concurrently with
-    anything else."""
+    """Runs inside exactly ONE asyncio.run() call for the entire process
+    lifetime (see start_consumer.py / __main__ below). redis_client.brpop()
+    is a blocking synchronous call - that's fine here, since this worker
+    processes exactly one message at a time anyway."""
     print("Telegram consumer v2 started...")
 
     start_heartbeat()
@@ -366,8 +386,6 @@ async def run():
                 event = json.loads(raw)
                 await process_event(event)
 
-            # Runs whether or not a message arrived this cycle - throttled
-            # internally to ~every 30s regardless of how often we get here.
             await poll_pending_videos()
 
         except Exception as e:
