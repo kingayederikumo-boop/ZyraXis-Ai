@@ -1,16 +1,10 @@
 """
 Command router for the Telegram worker.
 
-Two kinds of commands:
-- Canned (COMMANDS): reply is computed here directly, no AI call needed.
-- Orchestrated (ORCHESTRATED_COMMANDS): needs a real AI call + quota check,
-  so this module only validates args; the worker hands off to the
-  Orchestrator for the actual work.
-
-Every handler shares the same signature (telegram_id, first_name, args) so
-dispatch() can call any of them uniformly - a previous version of this file
-had inconsistent signatures per handler, which would have thrown TypeError
-depending on which command ran. Caught before it shipped.
+Handles /start, /help, /menu, /usage, /premium, /chat, /roleplay,
+/exitroleplay, /analyze, /admin, /premiumadd, /premiumremove, plus
+orchestrated commands (/image, /search, /code, /video) validated here and
+executed through the Orchestrator by the worker.
 """
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -18,12 +12,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from app.config import Config
 from app.database.session import SessionLocal
 from app.gateway.auth import AuthService
-
-auth = AuthService()
-
-
 from app.gateway.guard import Gatekeeper
 
+auth = AuthService()
 gate = Gatekeeper()
 
 
@@ -41,7 +32,7 @@ def cmd_start(telegram_id: str, first_name: str = None, args: str = ""):
 def cmd_help(telegram_id: str, first_name: str = None, args: str = ""):
     text = (
         "*ZyraXis AI — Commands*\n\n"
-        "/chat — AI chat mode\n"
+        "/chat — Start a conversation\n"
         "/roleplay — Enter roleplay mode\n"
         "/exitroleplay — Leave roleplay mode\n"
         "/analyze — How to analyze a file (just send one)\n"
@@ -93,12 +84,16 @@ def cmd_premium(telegram_id: str, first_name: str = None, args: str = ""):
         "*ZyraXis Premium*\n\n"
         "*Pro* — 200 ⭐\n"
         "Better reasoning, better web search, video generation, faster responses.\n\n"
+        "*Plus* — 500 ⭐\n"
+        "Everything in Pro, plus advanced reasoning, advanced web search, "
+        "basic Coding Assistant and Research Mode, early access to selected features.\n\n"
         "*Expert* — 1100 ⭐\n"
-        "Coding Assistant, Advanced Reasoning, Research Mode, "
-        "highest limits, priority execution."
+        "Full Coding Assistant, Advanced Research Mode, best available reasoning, "
+        "highest priority, unlimited roleplay (fair use)."
     )
     keyboard = [
         [InlineKeyboardButton("Upgrade to Pro — 200⭐", callback_data="upgrade:pro")],
+        [InlineKeyboardButton("Upgrade to Plus — 500⭐", callback_data="upgrade:plus")],
         [InlineKeyboardButton("Upgrade to Expert — 1100⭐", callback_data="upgrade:expert")],
     ]
     return text, InlineKeyboardMarkup(keyboard)
@@ -106,67 +101,17 @@ def cmd_premium(telegram_id: str, first_name: str = None, args: str = ""):
 
 def cmd_chat(telegram_id: str, first_name: str = None, args: str = ""):
     auth.set_mode(telegram_id, "chat")
-    return "You're in AI chat mode. Just send me a message!", None
+    return "Chat mode. Just send me anything.", None
 
 
 def cmd_roleplay(telegram_id: str, first_name: str = None, args: str = ""):
     auth.set_mode(telegram_id, "roleplay")
-    text = (
-        "🎭 Roleplay mode on.\n\n"
-        "Describe a character or scenario and I'll stay in character. "
-        "Use /exitroleplay to leave."
-    )
-    return text, None
+    return "Roleplay mode. Describe a scenario or character to begin.", None
 
 
 def cmd_exit_roleplay(telegram_id: str, first_name: str = None, args: str = ""):
     auth.set_mode(telegram_id, "chat")
     return "Back to normal chat.", None
-
-
-def cmd_admin(telegram_id: str, first_name: str = None, args: str = ""):
-    if not auth.is_admin(telegram_id):
-        return "Not authorized.", None
-
-    db = SessionLocal()
-    try:
-        total = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-        by_tier = db.execute("SELECT tier, COUNT(*) FROM users GROUP BY tier").fetchall()
-    finally:
-        db.close()
-
-    tier_lines = "\n".join(f"  {tier}: {count}" for tier, count in by_tier)
-    return f"*Admin*\n\nTotal users: {total}\n{tier_lines}", None
-
-
-def cmd_premium_add(telegram_id: str, first_name: str = None, args: str = ""):
-    """Manual tier grant. This is the practical stopgap for paid tiers
-    until the real Stars payment flow exists - not a placeholder, this is
-    genuinely how you'd support a user who paid you outside the bot for now."""
-    if not auth.is_admin(telegram_id):
-        return "Not authorized.", None
-
-    parts = args.strip().split()
-    if len(parts) != 2 or parts[1] not in Config.VALID_TIERS:
-        return "Usage: /premiumadd <telegram_id> <free|pro|expert>", None
-
-    target_id, tier = parts
-    auth.get_or_create_user(target_id)
-    auth.set_tier(target_id, tier)
-    return f"Set {target_id} to {tier}.", None
-
-
-def cmd_premium_remove(telegram_id: str, first_name: str = None, args: str = ""):
-    if not auth.is_admin(telegram_id):
-        return "Not authorized.", None
-
-    target_id = args.strip()
-    if not target_id:
-        return "Usage: /premiumremove <telegram_id>", None
-
-    auth.get_or_create_user(target_id)
-    auth.set_tier(target_id, "free")
-    return f"Set {target_id} to free.", None
 
 
 def cmd_image_check(telegram_id: str, first_name: str = None, args: str = ""):
@@ -216,6 +161,67 @@ def cmd_search_prompt(telegram_id: str, first_name: str = None, args: str = ""):
     return "Send /search followed by your question, e.g. /search latest news on the Mars rover", None
 
 
+def cmd_admin(telegram_id: str, first_name: str = None, args: str = ""):
+    if not auth.is_admin(telegram_id):
+        return "Not authorized.", None
+
+    db = SessionLocal()
+    try:
+        total = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        by_tier = db.execute("SELECT tier, COUNT(*) FROM users GROUP BY tier").fetchall()
+        # FIX: username is now actually captured (see telegram_consumer_v2.py) -
+        # list users by @handle instead of forcing another raw-ID lookup
+        # every time you need to identify who's who.
+        users = db.execute(
+            "SELECT telegram_id, username, tier FROM users ORDER BY first_seen ASC"
+        ).fetchall()
+    finally:
+        db.close()
+
+    tier_lines = "\n".join(f"  {tier}: {count}" for tier, count in by_tier)
+
+    user_lines = "\n".join(
+        f"  {'@' + uname if uname else 'no username'} — {tid} — {tier}"
+        for tid, uname, tier in users
+    )
+
+    return (
+        f"*Admin*\n\n"
+        f"Total users: {total}\n{tier_lines}\n\n"
+        f"*Users*\n{user_lines}"
+    ), None
+
+
+def cmd_premium_add(telegram_id: str, first_name: str = None, args: str = ""):
+    """Manual tier grant. This is the practical stopgap for paid tiers
+    until the real Stars payment flow is fully verified - not a placeholder,
+    this is genuinely how you'd support a user who paid you outside the bot."""
+    if not auth.is_admin(telegram_id):
+        return "Not authorized.", None
+
+    parts = args.strip().split()
+    if len(parts) != 2 or parts[1] not in Config.VALID_TIERS:
+        return "Usage: /premiumadd <telegram_id> <free|pro|plus|expert>", None
+
+    target_id, tier = parts
+    auth.get_or_create_user(target_id)
+    auth.set_tier(target_id, tier)
+    return f"Set {target_id} to {tier}.", None
+
+
+def cmd_premium_remove(telegram_id: str, first_name: str = None, args: str = ""):
+    if not auth.is_admin(telegram_id):
+        return "Not authorized.", None
+
+    target_id = args.strip()
+    if not target_id:
+        return "Usage: /premiumremove <telegram_id>", None
+
+    auth.get_or_create_user(target_id)
+    auth.set_tier(target_id, "free")
+    return f"Set {target_id} to free.", None
+
+
 COMMANDS = {
     "/start": cmd_start,
     "/help": cmd_help,
@@ -256,11 +262,11 @@ CALLBACK_COMMANDS = {
 
 
 def dispatch(text: str, telegram_id: str, first_name: str = None):
-    """Returns one of:
-    - ("canned", reply_text, reply_markup): a direct reply, send as-is
-    - ("orchestrate", feature, args): hand off to the Orchestrator
-    - ("invalid", error_text): a known orchestrated command with bad/missing args
-    - None: not a recognized command at all
+    """Returns:
+    ("canned", reply_text, reply_markup) - a direct reply, no AI call
+    ("invalid", error_text) - orchestrated command called with bad/missing args
+    ("orchestrate", feature, args) - hand off to the Orchestrator
+    None - not a known command
     """
     parts = text.strip().split(maxsplit=1)
     command = parts[0].split("@")[0].lower()
