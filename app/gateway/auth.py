@@ -23,6 +23,14 @@ class AuthService:
                 db.add(user)
                 db.commit()
                 db.refresh(user)
+            elif username and user.username != username:
+                # Username can change anytime on Telegram's side, and was
+                # never being captured at all before this pass (nothing
+                # upstream even read it from the update payload) - refresh
+                # opportunistically rather than only setting it once at
+                # first contact.
+                user.username = username
+                db.commit()
 
             return user
         finally:
