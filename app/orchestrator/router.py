@@ -1,5 +1,5 @@
 from app.providers.openrouter import OpenRouterClient
-from app.gateway.guard import Gatekeeper
+from app.gateway.guard import Gatekeeper, FEATURE_TO_DB_EVENT
 from app.gateway.auth import AuthService
 from app.database.session import SessionLocal
 from app.database.models import UsageEvent, ConversationMessage
@@ -28,9 +28,29 @@ def _fetch_history(db, telegram_id, feature):
     return [{"role": r.role, "content": r.content} for r in rows]
 
 
+def _usage_warning(tid: int, tier: str, feature: str) -> str | None:
+    """Spec requires exact quota numbers stay hidden during normal use,
+    except at 80% and 100% thresholds - this computes that, called after
+    the usage_events row for this request is already committed, so the
+    percentage reflects the request that just happened."""
+    db_feature = FEATURE_TO_DB_EVENT.get(feature, "chat")
+    limit = gate._limit(tier, db_feature)
+    if not limit:
+        return None
+
+    used = gate._usage_today(tid, db_feature)
+    pct = int(used / limit * 100)
+
+    if pct >= 100:
+        return f"\n\n_You've used 100% of today's {feature} quota - resets tomorrow._"
+    if pct >= 80:
+        return f"\n\n_Heads up: {pct}% of today's {feature} quota used._"
+    return None
+
+
 class Orchestrator:
-    """V1 production orchestrator, 3-tier and mode aware. Reads/writes the
-    REAL schema now: feature_limits for quotas, usage_events (one row per
+    """V1 production orchestrator, tier and mode aware. Reads/writes the
+    REAL schema: feature_limits for quotas, usage_events (one row per
     use) for consumption - not a hardcoded limits dict or a per-day counter
     column, neither of which exist in the actual database."""
 
@@ -69,7 +89,6 @@ class Orchestrator:
                 logger.error("ai_error", telegram_id, str(e))
                 return {"status": "error"}
 
-            from app.gateway.guard import FEATURE_TO_DB_EVENT
             db = SessionLocal()
             try:
                 db.add(UsageEvent(telegram_id=tid, feature=FEATURE_TO_DB_EVENT.get(feature, "chat")))
@@ -87,6 +106,16 @@ class Orchestrator:
                     db.commit()
                 finally:
                     db.close()
+
+            # FIX: spec requires 80%/100% usage warnings to appear
+            # automatically during normal use, not only via /usage - this
+            # wasn't built before. Only applied to plain-text responses
+            # (chat/roleplay/code/search) - appending text to an image URL
+            # or a video job dict wouldn't make sense.
+            if feature in ("chat", "roleplay", "code", "search") and isinstance(response, str):
+                warning = _usage_warning(tid, tier, feature)
+                if warning:
+                    response = response + warning
 
             return {"status": "success", "data": response, "feature": feature}
 

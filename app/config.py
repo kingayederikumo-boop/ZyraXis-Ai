@@ -17,9 +17,14 @@ class Config:
     OPENROUTER_API_KEY_FILE = os.getenv("OPENROUTER_API_KEY_FILE") or OPENROUTER_API_KEY
     OPENROUTER_API_KEY_VIDEO = os.getenv("OPENROUTER_API_KEY_VIDEO") or OPENROUTER_API_KEY
 
+    # FIX: this was still the expensive fallback chain (Sonnet/GPT-5.4/
+    # Gemini Pro preview) from before the "switch to cheaper model"
+    # decision - that decision was made but never actually landed here.
+    # First entry matches openrouter.py's DEFAULT_CHAT_MODEL exactly, so
+    # the declared default and actual fallback behavior stay aligned.
     OPENROUTER_MODEL_CHAIN = os.getenv(
         "OPENROUTER_MODEL_CHAIN",
-        "anthropic/claude-sonnet-4.6,openai/gpt-5.4,google/gemini-3.1-pro-preview",
+        "openai/gpt-4o-mini,google/gemini-2.5-flash,anthropic/claude-haiku-4.5",
     ).split(",")
 
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///zyraxis.db")
@@ -30,8 +35,10 @@ class Config:
 
     # Quotas are intentionally NOT hardcoded here. Production quota truth
     # lives in the feature_limits table and is read by Gatekeeper.
-    # Expert roleplay uses -1 in feature_limits to represent unlimited,
-    # subject to backend fair-use safeguards.
+    # Expert's "fair use" chat/roleplay limits are a large finite sentinel
+    # (1000/day) in feature_limits, not -1 or any other special value -
+    # Gatekeeper's `usage_today < limit` check has no "unlimited" concept,
+    # so a sentinel is the correct approach, not a magic negative number.
 
     TIER_PRICE_STARS = {
         "pro": 200,
