@@ -136,3 +136,22 @@ async def send_invoice(chat_id: str, title: str, description: str, payload: str,
         )
     except Exception as e:
         print(f"Invoice send failed: {e}")
+
+
+async def get_star_balance() -> dict:
+    """Return the bot's current Telegram Stars balance via getMyStarBalance.
+
+    Used by the admin-only /starbalance command. Returns a dict with
+    `amount` (int) and optional `nanostar_amount`, or `error` on failure.
+    """
+    try:
+        result = await get_bot().get_my_star_balance()
+        amount = getattr(result, "amount", 0) or 0
+        nanostar = getattr(result, "nanostar_amount", 0) or 0
+        return {
+            "amount": int(amount),
+            "nanostar_amount": int(nanostar),
+        }
+    except Exception as e:
+        print(f"get_star_balance failed: {e}")
+        return {"error": str(e)}
