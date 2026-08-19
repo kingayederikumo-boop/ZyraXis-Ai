@@ -6,22 +6,40 @@ class Config:
     TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+    # Used at startup to auto-register the webhook with Telegram - see
+    # app/main.py. Optional: if unset, startup just skips registration
+    # (so local/dev runs without a public URL don't crash on boot).
     WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
+    # Optional per-feature keys, for spend-limit isolation on OpenRouter's
+    # dashboard (image/video cost more per call than chat text - a separate
+    # key with its own cap protects the main budget from one runaway
+    # feature). Each falls back to OPENROUTER_API_KEY if unset - works out
+    # of the box with just one key, upgrade to segmented keys anytime
+    # without touching code.
     OPENROUTER_API_KEY_CHAT = os.getenv("OPENROUTER_API_KEY_CHAT") or OPENROUTER_API_KEY
     OPENROUTER_API_KEY_ROLEPLAY = os.getenv("OPENROUTER_API_KEY_ROLEPLAY") or OPENROUTER_API_KEY
     OPENROUTER_API_KEY_CODE = os.getenv("OPENROUTER_API_KEY_CODE") or OPENROUTER_API_KEY
     OPENROUTER_API_KEY_SEARCH = os.getenv("OPENROUTER_API_KEY_SEARCH") or OPENROUTER_API_KEY
+
+    # No longer used by the image feature specifically - OpenRouter's
+    # Images API returned 402 Payment Required without a funded balance.
+    # Image generation now uses Gemini's free tier instead (see below).
+    # Left here in case OpenRouter image gen is revisited later.
     OPENROUTER_API_KEY_IMAGE = os.getenv("OPENROUTER_API_KEY_IMAGE") or OPENROUTER_API_KEY
+
+    # Gemini API key for image generation (Nano Banana 2) - free tier,
+    # 50 requests/day, no credit card required.
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
     OPENROUTER_API_KEY_FILE = os.getenv("OPENROUTER_API_KEY_FILE") or OPENROUTER_API_KEY
     OPENROUTER_API_KEY_VIDEO = os.getenv("OPENROUTER_API_KEY_VIDEO") or OPENROUTER_API_KEY
 
-    # FIX: this was still the expensive fallback chain (Sonnet/GPT-5.4/
-    # Gemini Pro preview) from before the "switch to cheaper model"
-    # decision - that decision was made but never actually landed here.
-    # First entry matches openrouter.py's DEFAULT_CHAT_MODEL exactly, so
-    # the declared default and actual fallback behavior stay aligned.
+    # Fallback chain: OpenRouter tries these in order if one fails
+    # (rate limit, 5xx, refusal, context-length error). Matches
+    # DEFAULT_CHAT_MODEL in openrouter.py as the first entry, so the
+    # declared default and the actual fallback behavior stay aligned -
+    # override via env if you want a different chain.
     OPENROUTER_MODEL_CHAIN = os.getenv(
         "OPENROUTER_MODEL_CHAIN",
         "openai/gpt-4o-mini,google/gemini-2.5-flash,anthropic/claude-haiku-4.5",
@@ -33,13 +51,11 @@ class Config:
     ENV = os.getenv("ENV", "development")
     DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
-    # Quotas are intentionally NOT hardcoded here. Production quota truth
-    # lives in the feature_limits table and is read by Gatekeeper.
-    # Expert's "fair use" chat/roleplay limits are a large finite sentinel
-    # (1000/day) in feature_limits, not -1 or any other special value -
-    # Gatekeeper's `usage_today < limit` check has no "unlimited" concept,
-    # so a sentinel is the correct approach, not a magic negative number.
+    # REMOVED: hardcoded LIMITS dict. Real per-tier, per-feature quotas
+    # live in the `feature_limits` table in production - Gatekeeper reads
+    # from there now, not from here.
 
+    # Telegram Stars pricing per spec
     TIER_PRICE_STARS = {
         "pro": 200,
         "plus": 500,
