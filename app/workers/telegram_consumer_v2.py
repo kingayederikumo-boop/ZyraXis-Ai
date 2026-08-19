@@ -10,9 +10,9 @@ from app.queue.dlq import push_dlq, push_retry
 from app.monitoring.heartbeat import start_heartbeat
 from app.bot.telegram_client import (
     send_message, send_chat_action, answer_callback_query, send_photo, send_video,
-    send_invoice, get_file_bytes,
+    send_invoice, get_file_bytes, get_star_balance,
 )
-from app.bot.dispatch import dispatch, CALLBACK_COMMANDS
+from app.bot.dispatch import dispatch, CALLBACK_COMMANDS, STAR_BALANCE_MARKER
 from app.bot.payments import build_invoice_payload, finalize_payment
 from app.config import Config
 from app.database.session import SessionLocal
@@ -127,6 +127,35 @@ async def process_document(message: dict, user_id: str, chat_id: str):
     await _send_outcome(chat_id, outcome)
 
 
+async def _reply_star_balance(chat_id: str):
+    """Fetch the bot's live Stars balance and reply. Admin-gated upstream."""
+    balance = await get_star_balance()
+
+    if "error" in balance:
+        await send_message(
+            chat_id,
+            f"❌ Failed to fetch Stars balance:\n`{balance['error']}`",
+        )
+        return
+
+    amount = balance.get("amount", 0)
+    nano = balance.get("nanostar_amount", 0)
+
+    text = (
+        f"⭐ *Bot Stars Balance*\n\n"
+        f"• Available: *{amount:,}* Stars\n"
+    )
+    if nano:
+        text += f"• Nano-stars: `{nano}`\n"
+
+    text += (
+        "\n_Only earned Stars past the 21-day hold can be withdrawn "
+        "via Fragment (min. ~1 000). Check the bot profile → Edit → Balance "
+        "for pending vs available details._"
+    )
+    await send_message(chat_id, text)
+
+
 async def process_event(event: dict):
     try:
         payload = event.get("payload", {})
@@ -176,7 +205,10 @@ async def process_event(event: dict):
 
                 if kind == "canned":
                     _, reply_text, reply_markup = result
-                    await send_message(chat_id, reply_text, reply_markup=reply_markup)
+                    if reply_text == STAR_BALANCE_MARKER:
+                        await _reply_star_balance(chat_id)
+                    else:
+                        await send_message(chat_id, reply_text, reply_markup=reply_markup)
                     return
 
                 if kind == "invalid":
