@@ -2,9 +2,10 @@
 Command router for the Telegram worker.
 
 Handles /start, /help, /menu, /usage, /premium, /chat, /roleplay,
-/exitroleplay, /analyze, /admin, /premiumadd, /premiumremove, plus
-orchestrated commands (/image, /search, /code, /video) validated here and
-executed through the Orchestrator by the worker.
+/exitroleplay, /analyze, /admin, /premiumadd, /premiumremove,
+/starbalance, /stars, plus orchestrated commands (/image, /search,
+/code, /video) validated here and executed through the Orchestrator by
+the worker.
 """
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -16,6 +17,10 @@ from app.gateway.guard import Gatekeeper
 
 auth = AuthService()
 gate = Gatekeeper()
+
+# Special marker returned by cmd_starbalance when the caller is an admin.
+# The worker detects this and performs the async getMyStarBalance call.
+STAR_BALANCE_MARKER = "__ZYRAXIS_STAR_BALANCE__"
 
 
 def _bar(pct: int) -> str:
@@ -222,6 +227,14 @@ def cmd_premium_remove(telegram_id: str, first_name: str = None, args: str = "")
     return f"Set {target_id} to free.", None
 
 
+def cmd_starbalance(telegram_id: str, first_name: str = None, args: str = ""):
+    """Admin-only. Returns a marker that the worker turns into a live
+    getMyStarBalance call (the Bot API method is async)."""
+    if not auth.is_admin(telegram_id):
+        return "Not authorized.", None
+    return STAR_BALANCE_MARKER, None
+
+
 COMMANDS = {
     "/start": cmd_start,
     "/help": cmd_help,
@@ -235,6 +248,8 @@ COMMANDS = {
     "/admin": cmd_admin,
     "/premiumadd": cmd_premium_add,
     "/premiumremove": cmd_premium_remove,
+    "/starbalance": cmd_starbalance,
+    "/stars": cmd_starbalance,
 }
 
 # Needs a real AI call + quota check. Maps command -> (feature, validator).
