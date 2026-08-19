@@ -64,6 +64,11 @@ Only use `upgrade head` against a genuinely fresh database.
 ## Commands
 
 `/start /help /menu /usage /premium /chat /roleplay /exitroleplay
-/analyze /image /video /search /code` — public. `/admin /premiumadd
-/premiumremove` — restricted to `users.is_admin = true`, deliberately not
-registered in BotFather's public command list.
+/analyze /image /video /search /code` — public.
+
+`/admin /premiumadd /premiumremove /starbalance /stars` — restricted to
+`users.is_admin = true`, deliberately not registered in BotFather's
+public command list.
+
+`/starbalance` (alias `/stars`) shows the bot's live Telegram Stars
+balance via `getMyStarBalance`.
