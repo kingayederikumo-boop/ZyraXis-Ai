@@ -1,9 +1,12 @@
 """Gatekeeper - reads real quotas from feature_limits and real usage from
 usage_events. Quotas are database truth, not hardcoded application values.
 
-Quota semantics:
-- daily_limit >= 0: normal daily quota
-- daily_limit == -1: unlimited entitlement
+Quota semantics (confirmed live against the actual database, not assumed):
+- daily_limit >= 0: normal daily quota, checked as usage_today < daily_limit
+- There is no -1/"unlimited" sentinel in production. Expert's fair-use
+  chat/roleplay limits are a large finite number (1000/day) in
+  feature_limits directly - inventing a special -1 meaning here would
+  contradict what's actually in the database.
 """
 
 import datetime
@@ -12,18 +15,21 @@ from sqlalchemy import func
 from app.database.session import SessionLocal
 from app.database.models import FeatureLimit, UsageEvent
 
+# FIX: usage_events.feature has a real CHECK constraint in production:
+# ANY(['chat', 'roleplay', 'uploads', 'image_edit', 'video']). This dict
+# previously mapped "image" -> "image_generation", a value that doesn't
+# exist in that constraint - every successful /image call was failing at
+# the very last step (saving the usage event) with a DB constraint
+# violation. Image generation and image editing intentionally share one
+# bucket (image_edit) - confirmed decision, not an oversight.
 FEATURE_TO_DB_EVENT = {
     "chat": "chat",
     "roleplay": "roleplay",
-    "image": "image_generation",
-    "image_generation": "image_generation",
-    "image_edit": "image_edit",
+    "image": "image_edit",
     "file": "uploads",
-    "uploads": "uploads",
     "video": "video",
-    # Search and code do not have independent usage buckets yet. Their
-    # capability access is still tier-gated by the orchestrator; until their
-    # own quota buckets exist, usage is charged to the chat bucket.
+    # Search and code have no independent usage bucket in the schema -
+    # charged to chat until/unless a dedicated bucket is added.
     "search": "chat",
     "code": "chat",
 }
@@ -56,29 +62,18 @@ class Gatekeeper:
     def can_use(self, telegram_id: int, tier: str, feature: str) -> bool:
         db_feature = FEATURE_TO_DB_EVENT.get(feature, "chat")
         limit = self._limit(tier, db_feature)
-
-        # -1 is the explicit unlimited entitlement used by Expert roleplay.
-        if limit == -1:
-            return True
-
         return self._usage_today(telegram_id, db_feature) < limit
 
     def remaining(self, telegram_id: int, tier: str, feature: str) -> int:
         db_feature = FEATURE_TO_DB_EVENT.get(feature, "chat")
         limit = self._limit(tier, db_feature)
-
-        if limit == -1:
-            return -1
-
         used = self._usage_today(telegram_id, db_feature)
         return max(0, limit - used)
 
-    def usage_percent(self, telegram_id: int, tier: str, feature: str) -> int | None:
-        """Return percentage used for UI. None represents unlimited."""
+    def usage_percent(self, telegram_id: int, tier: str, feature: str) -> int:
+        """Percentage used today, for UI display."""
         db_feature = FEATURE_TO_DB_EVENT.get(feature, "chat")
         limit = self._limit(tier, db_feature)
-        if limit == -1:
-            return None
         if limit <= 0:
             return 100
         used = self._usage_today(telegram_id, db_feature)
